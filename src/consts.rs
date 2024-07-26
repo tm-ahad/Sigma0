@@ -12,4 +12,4 @@ pub const CONTROLLING_SQUARE: f32 = 0.04;
 pub const DEFENDING_PIECE: f32 = 0.05;
 
 pub const OPENING_SEARCH_DEPTH: u8 = 4;
-pub const SEARCH_DEPTH: u8 = 5;
+pub const SEARCH_DEPTH: u8 = 6;

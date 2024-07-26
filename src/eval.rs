@@ -276,6 +276,19 @@ pub fn eval(
                 }
             }
 
+            if piece == Piece::Queen && !is_opening_for_king_safety && is_piece_defended(board, square, color)
+            {
+                let opposite_king = board.king_square(invert_color(color));
+                let distance = distance(opposite_king, square);
+
+                score_for_white += white_score(match distance 
+                {
+                    1 => 3.0,
+                    2 => 1.1,
+                    _ => 0.0
+                }, color);
+            }
+
             score_for_white += match piece 
             {
                 Piece::Pawn => white_score(pawn_square_value(rank, file, color, is_endgame, board), color),
