@@ -1,0 +1,15 @@
+pub const ENDGAME_KING_DISTANCE: f32 = 0.2134;
+pub const OPENING_QUEEN_SAFETY: f32 = 0.95;
+pub const ROOK_ON_7TH_RANK_BONUS: f32 = 0.9;
+pub const KING_MOVED_NOT_ENDGAME: f32 = 6.0;
+pub const GOOD_KNIGHT: f32 = 0.2;
+
+pub const OPENING_FOR_KING_SAFETY: i32 = 22;
+pub const OPENING_FOR_PIECE_SAFETY: i32 = 14;
+pub const OPENING_FOR_USING_OPENING_BOOK: i32 = 9;
+pub const MAX_PIECE_FOR_ENDGAME: u8 = 7;
+pub const CONTROLLING_SQUARE: f32 = 0.04;
+pub const DEFENDING_PIECE: f32 = 0.05;
+
+pub const OPENING_SEARCH_DEPTH: u8 = 4;
+pub const SEARCH_DEPTH: u8 = 5;

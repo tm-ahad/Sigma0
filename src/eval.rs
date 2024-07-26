@@ -1,0 +1,368 @@
+use std::collections::HashMap;
+
+use chess::{Board, BoardStatus, ChessMove, Color, File, MoveGen, Piece, Rank, Square, ALL_SQUARES, EMPTY};
+use chess::BoardStatus::{Checkmate, Stalemate};
+use chess::Color::{White, Black};
+use crate::consts::{CONTROLLING_SQUARE, DEFENDING_PIECE, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, ROOK_ON_7TH_RANK_BONUS};
+use crate::material::material;
+use crate::piece_table::{king_square_value, pawn_square_value};
+
+pub fn is_terminal(status: BoardStatus) -> bool 
+{
+    status != BoardStatus::Ongoing
+}
+
+pub fn white_score(advantage: f32, turn: Color) -> f32 
+{
+    if turn == White { advantage } else { -advantage }
+}
+
+fn count_all_pieces(board: &Board) -> u8 
+{
+    ALL_SQUARES.iter().filter(|&&sq| board.piece_on(sq).is_some()).count() as u8
+}
+
+fn invert_color(color: Color) -> Color
+{
+    match color 
+    {
+        Color::White => Color::Black,
+        Color::Black => Color::White
+    }
+}
+
+fn is_valid_file_rank(file: i8, rank: i8) -> bool
+{
+    (0..=7).contains(&file) && (0..=7).contains(&rank)
+}
+
+fn is_piece_defended(board: &Board, sq: Square, color: Color) -> bool
+{
+    let queen_directions: Vec<(i8, i8)> = vec!
+    [
+        (-1, 1),
+        (1, 1),
+        (1, -1),
+        (-1, -1),
+        (1, 0),
+        (0, 1),
+        (0, -1),
+        (-1, 0)
+    ];
+
+    let knight_directions: Vec<(i8, i8)> = vec!
+    [
+        (-2, 1),
+        (-2, -1),
+        (1, -2),
+        (-1, -2),
+        (2, 1),
+        (2, -1),
+        (1, 2),
+        (-1, 2)
+    ];
+
+    let mut file = sq.get_file().to_index() as i8;
+    let mut rank = sq.get_rank().to_index() as i8;
+
+    for directions in queen_directions 
+    {
+        while is_valid_file_rank(file, rank) 
+        {
+            let square = Square::make_square
+            (
+                Rank::from_index(file as usize), 
+                File::from_index(rank as usize)
+            );
+
+            let piece = board.piece_on(square);
+            let piece_color = board.color_on(square);
+
+            if let Some(piece) = piece 
+            {
+                if piece_color == Some(color) 
+                {
+                    let multiple = (directions.0*directions.1).abs();
+                    let distance = distance(sq, square);
+
+                    if piece == Piece::Pawn && multiple == 1 && distance == 0 
+                    {
+                        if color == White && directions.1 == 1 
+                        {
+                            return true;
+                        }
+                        else if color == Black && directions.0 == -1 
+                        {
+                            return true;
+                        }
+                    } 
+                    else if piece == Piece::King && distance == 0 
+                    {
+                        return true;
+                    }
+                    else if piece == Piece::Bishop && multiple == 1 
+                    {
+                        return true;
+                    }
+                    else if piece == Piece::Rook && multiple == 0 
+                    {
+                        return true;
+                    }
+                    else if piece == Piece::Queen 
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            file += directions.0;
+            rank += directions.1;
+        }
+    }
+
+    file = sq.get_file().to_index() as i8;
+    rank = sq.get_rank().to_index() as i8;
+
+    for directions in knight_directions 
+    {
+        let file = file + directions.0;
+        let rank = rank + directions.1;
+
+        let square = Square::make_square
+        (
+            Rank::from_index(file as usize), 
+            File::from_index(rank as usize)
+        );
+
+        let piece_color = board.color_on(square);
+        let piece = board.piece_on(square);
+
+        if piece_color == Some(color) && piece == Some(Piece::Knight)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn distance(sq: Square, sq2: Square) -> u8 
+{
+    let sqrf = square_index(sq).0.abs_diff(square_index(sq2).0);
+    let sqfd = square_index(sq).0.abs_diff(square_index(sq2).0);
+
+    sqrf.max(sqfd) - 1
+}
+
+pub fn is_bad_king_move(board: &Board, mov: &ChessMove, plies: i32) -> bool
+{
+    let is_opening_for_king_safety = plies < OPENING_FOR_KING_SAFETY;
+    let source = mov.get_source();
+    let dest = mov.get_dest();
+
+    let is_castling = dest.to_int().abs_diff(source.to_int()) == 2;
+    let is_capturing = board.piece_on(dest).is_some();
+    let is_check = board.checkers() != &EMPTY;
+
+    is_opening_for_king_safety && !is_castling && !is_capturing && !is_check &&
+    (
+        mov.get_source() == board.king_square(Color::White) ||
+        mov.get_source() == board.king_square(Color::Black)
+    )
+}
+
+pub fn eval(
+    board: &Board, 
+    legal_moves: Vec<ChessMove>, 
+    plies: i32,
+    _log: bool
+) -> f32 
+{
+    if board.status() == Checkmate 
+    {
+        return match board.side_to_move() 
+        {
+            White => f32::NEG_INFINITY,
+            Black => f32::INFINITY,
+        };
+    } 
+    else if board.status() == Stalemate
+    {
+        return 0.0;
+    }
+
+    let mut score_for_white = 0.0;
+    let pieces = count_all_pieces(board);
+
+    let is_endgame = pieces < MAX_PIECE_FOR_ENDGAME;
+    let is_opening_for_piece_safety = plies < OPENING_FOR_PIECE_SAFETY;
+    let is_opening_for_king_safety = plies < OPENING_FOR_KING_SAFETY;
+
+    let mut captured = HashMap::new();
+    let mut max_captured = 0.0;
+
+    for square in ALL_SQUARES 
+    {
+        if let Some(piece) = board.piece_on(square) 
+        {
+            let color = board.color_on(square).unwrap();
+            let (rank, file) = square_index(square);
+
+            if piece == Piece::Rook && color == White && rank == 6 
+            {
+                score_for_white += ROOK_ON_7TH_RANK_BONUS
+            }
+
+            if is_endgame && piece == Piece::Pawn 
+            {
+                let king = board.king_square(color);
+                let enemy_king = board.king_square(invert_color(color));
+
+                score_for_white += distance(king, square) as f32 / 1.6;
+                score_for_white -= distance(enemy_king, square) as f32 / 1.6;
+            }
+
+            if piece == Piece::Rook && color == Black && rank == 1 
+            {
+                score_for_white -= ROOK_ON_7TH_RANK_BONUS
+            }
+
+            if piece == Piece::Knight && is_opening_for_piece_safety
+            {
+                if color == White && (square == Square::F3 || square == Square::C3) 
+                {
+                    score_for_white += GOOD_KNIGHT
+                }
+
+                if color == Black && (square == Square::C6 || square == Square::F6) 
+                {
+                    score_for_white -= GOOD_KNIGHT
+                }
+            }
+
+            if piece == Piece::King && is_opening_for_king_safety
+            {
+                if color == Black && rank != 7
+                {
+                    score_for_white += KING_MOVED_NOT_ENDGAME/plies as f32;
+                }
+
+                if color == White && rank != 0
+                {
+                    score_for_white -= KING_MOVED_NOT_ENDGAME/plies as f32
+                }
+            }
+
+            if (piece == Piece::Queen || piece == Piece::Knight) && is_opening_for_piece_safety
+            {
+                if color == White && rank > 1
+                {
+                    score_for_white -= match piece 
+                    {
+                        Piece::Queen => OPENING_QUEEN_SAFETY,
+                        Piece::Knight => GOOD_KNIGHT,
+                        _ => 0.0
+                    }
+                }
+
+                if color == Black && rank < 6
+                {
+                    score_for_white += match piece 
+                    {
+                        Piece::Queen => OPENING_QUEEN_SAFETY,
+                        Piece::Knight => GOOD_KNIGHT,
+                        _ => 0.0
+                    }
+                }
+            }
+
+            score_for_white += match piece 
+            {
+                Piece::Pawn => white_score(pawn_square_value(rank, file, color, is_endgame, board), color),
+                Piece::King => white_score(king_square_value(rank, file, color, is_endgame), color),
+                _ => white_score(material(Some(piece)), color),
+            };
+        }
+    }
+
+    for mov in &legal_moves
+    {
+        if is_bad_king_move(board, mov, plies) 
+        {
+            continue;
+        }
+
+        let source_piece = board.piece_on(mov.get_source());
+        let source_color = board.color_on(mov.get_source());
+
+        if let Some(dest_piece) = board.piece_on(mov.get_dest()) 
+        {
+            let dest_color = board.color_on(mov.get_dest()).unwrap();
+            let dest_sq = mov.get_dest();
+                    
+            if let Some(val) = captured.get(&mov.get_source())
+            {
+                score_for_white += white_score(*val, source_color.unwrap());
+            }
+            else if !is_piece_defended(board, dest_sq, dest_color) 
+            {
+                let source_material = material(Some(dest_piece));
+
+                captured.insert(mov.get_source(), DEFENDING_PIECE);
+                score_for_white += white_score(0.0_f32.max(source_material-max_captured), source_color.unwrap());
+
+                max_captured = max_captured.max(source_material);
+            }
+            else 
+            {  
+                let source_material = material(Some(dest_piece))-material(source_piece);
+
+                captured.insert(mov.get_source(), DEFENDING_PIECE);
+                score_for_white += white_score(0.0_f32.max(source_material-max_captured), source_color.unwrap());
+
+                max_captured = max_captured.max(source_material);
+            }
+        }
+        else 
+        {
+            score_for_white += white_score(CONTROLLING_SQUARE, board.side_to_move())
+        }   
+    }
+
+    let flipped_board = board.null_move();
+
+    if let Some(flipped_board) = flipped_board 
+    {
+        let legal_moves_other_side = MoveGen::new_legal(&flipped_board);
+
+        for mov in legal_moves_other_side 
+        {
+            if board.piece_on(mov.get_dest()).is_none() 
+            {
+                score_for_white += white_score(DEFENDING_PIECE, flipped_board.side_to_move())
+            }
+            else 
+            {
+                score_for_white += white_score(CONTROLLING_SQUARE, flipped_board.side_to_move())
+            }
+        }
+    }
+
+    if is_endgame 
+    {
+        let wk = board.king_square(White);
+        let bk = board.king_square(Black);
+
+        let diff = distance(wk, bk) as f32;
+
+        score_for_white += diff*score_for_white*ENDGAME_KING_DISTANCE
+    }
+
+    score_for_white
+}
+
+fn square_index(square: Square) -> (u8, u8) 
+{
+    let idx = square.to_index();
+    ((idx / 8) as u8, (idx % 8) as u8)
+}
