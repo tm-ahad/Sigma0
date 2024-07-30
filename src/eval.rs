@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chess::{Board, BoardStatus, ChessMove, Color, File, MoveGen, Piece, Rank, Square, ALL_SQUARES, EMPTY};
 use chess::BoardStatus::{Checkmate, Stalemate};
 use chess::Color::{White, Black};
-use crate::consts::{CONTROLLING_SQUARE, DEFENDING_PIECE, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, ROOK_ON_7TH_RANK_BONUS};
+use crate::consts::{CONTROLLING_SQUARE, DEFENDING_PIECE, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
 use crate::material::material;
 use crate::piece_table::{king_square_value, pawn_square_value};
 
@@ -17,9 +17,19 @@ pub fn white_score(advantage: f32, turn: Color) -> f32
     if turn == White { advantage } else { -advantage }
 }
 
-fn count_all_pieces(board: &Board) -> u8 
+pub fn count_all_pieces(board: &Board) -> u8 
 {
-    ALL_SQUARES.iter().filter(|&&sq| board.piece_on(sq).is_some()).count() as u8
+    let mut res = 0;
+
+    for sq in ALL_SQUARES 
+    {
+        if board.piece_on(sq).is_some() 
+        {
+            res += 1;
+        }
+    }
+
+    res
 }
 
 fn invert_color(color: Color) -> Color
@@ -178,6 +188,8 @@ pub fn eval(
     _log: bool
 ) -> f32 
 {
+    let pieces = count_all_pieces(board);
+
     if board.status() == Checkmate 
     {
         return match board.side_to_move() 
@@ -186,20 +198,46 @@ pub fn eval(
             Black => f32::INFINITY,
         };
     } 
-    else if board.status() == Stalemate
+    else if board.status() == Stalemate || pieces == 2
     {
         return 0.0;
     }
 
     let mut score_for_white = 0.0;
-    let pieces = count_all_pieces(board);
 
-    let is_endgame = pieces < MAX_PIECE_FOR_ENDGAME;
+    let is_endgame = pieces <= MAX_PIECE_FOR_ENDGAME;
     let is_opening_for_piece_safety = plies < OPENING_FOR_PIECE_SAFETY;
     let is_opening_for_king_safety = plies < OPENING_FOR_KING_SAFETY;
 
     let mut captured = HashMap::new();
     let mut max_captured = 0.0;
+
+    if is_opening_for_king_safety 
+    {
+        let colors = [Color::White, Color::Black];
+        for _color in colors 
+        {
+                    
+            let white_king = square_index(board.king_square(Color::White));
+            let rank = white_king.0 as i8;
+            let file = white_king.1 as i8;
+
+            let rank_change: i8 = if _color == Color::White {1} else {-1};
+                
+            let sq1 = Square::make_square(Rank::from_index((rank+rank_change) as usize), File::from_index((file-1) as usize));
+            let sq2 = Square::make_square(Rank::from_index((rank+rank_change) as usize), File::from_index(file as usize));
+            let sq3 = Square::make_square(Rank::from_index((rank+rank_change) as usize), File::from_index((file+1) as usize));
+
+            if board.piece_on(sq1).is_some()
+                && board.piece_on(sq2).is_some()
+                && board.piece_on(sq3).is_some()
+            {
+                score_for_white += white_score(PAWN_SHIELD_SCORE, _color)
+            }
+        }
+    }
+
+    if _log{println!("score: {}", score_for_white)}
 
     for square in ALL_SQUARES 
     {
@@ -255,7 +293,7 @@ pub fn eval(
 
             if (piece == Piece::Queen || piece == Piece::Knight) && is_opening_for_piece_safety
             {
-                if color == White && rank > 1
+                if color == White && rank > 2
                 {
                     score_for_white -= match piece 
                     {
@@ -265,7 +303,7 @@ pub fn eval(
                     }
                 }
 
-                if color == Black && rank < 6
+                if color == Black && rank < 5
                 {
                     score_for_white += match piece 
                     {
@@ -297,6 +335,8 @@ pub fn eval(
             };
         }
     }
+
+    if _log{println!("score: {}", score_for_white)}
 
     for mov in &legal_moves
     {
@@ -341,6 +381,7 @@ pub fn eval(
             score_for_white += white_score(CONTROLLING_SQUARE, board.side_to_move())
         }   
     }
+    if _log{println!("score: {}", score_for_white)}
 
     let flipped_board = board.null_move();
 
@@ -360,6 +401,7 @@ pub fn eval(
             }
         }
     }
+    if _log{println!("score: {}", score_for_white)}
 
     if is_endgame 
     {
@@ -370,6 +412,7 @@ pub fn eval(
 
         score_for_white += diff*score_for_white*ENDGAME_KING_DISTANCE
     }
+    if _log{println!("score: {}", score_for_white)};
 
     score_for_white
 }

@@ -12,9 +12,9 @@ mod search_move;
 mod promotion_piece;
 mod move_string_conversion;
 mod piece_table;
-mod opening_book;
-mod sort_moves;
 mod transposition_table;
+mod endgame_tablebase;
+mod opening_book;
 
 fn main()
 {

@@ -1,77 +1,49 @@
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::time::Duration;
 
-use chess::{Board, ChessMove, Color};
-use serde_json::Value;
+use chess::{Board, ChessMove};
 use ureq::{Agent, AgentBuilder};
 
 pub struct OpeningBook 
 {
-    agent: Agent
+    _agent: Agent
 }
 
 impl OpeningBook 
 {
-
     pub fn new() -> Self
     {
         OpeningBook 
         {
-            agent: AgentBuilder::new()
+            _agent: AgentBuilder::new()
                 .timeout(Duration::from_secs(2))
                 .build()
         }
     }
-    pub fn get_move(&self, board: &Board) -> Option<ChessMove>
+
+    pub fn get_move(&self, _board: &Board) -> Option<ChessMove> 
     {
-        let fen = board.to_string();
-        let color = match board.side_to_move() 
-        {
-            Color::White => "white",
-            Color::Black => "black"
-        };
+        // let fen = board.to_string();
+        // let color = if board.side_to_move() == Color::White {"white"} else {"black"};
 
-        let resp = self.agent.get(&format!("https://explorer.lichess.ovh/player?player=Sigma0&color={color}&fen={fen}"))
-            .call();
+        // let url = format!("https://explorer.lichess.ovh/master?player=foo&color={color}&fen={fen}");
 
-        if let Ok(resp) = resp 
-        {
-            let str_response = resp.into_json::<HashMap<String, Value>>();
+        // let response = self.agent.get(&url)
+        //     .call()
+        //     .map_err(|_| {})
+        //     .ok()?
+        //     .into_json::<Value>()
+        //     .map_err(|_| {})
+        //     .ok()?;
 
-            if str_response.is_err() 
-            {
-                return None
-            }
-            
-            let str_response = str_response.unwrap();
-            let moves = str_response.get("moves")
-                .unwrap();
+        // if let Some(Value::Array(moves)) = response.get("moves") 
+        // {
+        //     if let Some(Value::Object(first_move)) = moves.get(0) {
+        //         if let Some(uci) = first_move.get("uci").and_then(Value::as_str) {
+        //             return ChessMove::from_str(uci).ok();
+        //         }
+        //     }
+        // }
 
-            match moves 
-            {
-                Value::Array(vec) => 
-                {
-                    if vec.is_empty() 
-                    {
-                        return None
-                    }
-
-                    match &vec[0]
-                    {
-                        Value::Object(map) => 
-                        {
-                            Some(ChessMove::from_str(map["uci"].as_str().unwrap())
-                                .unwrap_or_else(|_| panic!("Invalid move")))
-                        },
-                        _ => todo!()
-                    }
-                },
-                _ => todo!()
-            }
-        }
-        else 
-        {
-            None
-        }   
+        None
     }
 }
-
