@@ -1,18 +1,35 @@
-use std::str::FromStr;
-
+use std::{str::FromStr, time::Duration};
 use chess::{Board, ChessMove};
 use serde_json::Value;
+use ureq::{Agent, AgentBuilder};
 
-pub struct EndgameTablebase;
+pub struct EndGameTablebase {
+    agent: Agent,
+    failed: bool
+}
 
-impl EndgameTablebase 
-{
-    pub fn get_move(board: &Board) -> Option<ChessMove> 
+impl EndGameTablebase {
+    pub fn new() -> Self {
+        EndGameTablebase {
+            agent: AgentBuilder::new()
+                .timeout(Duration::from_secs(2))
+                .timeout_connect(Duration::from_secs(2))
+                .build(),
+            failed: false,
+        }
+    }
+
+    pub fn get_move(&mut self, board: &Board) -> Option<ChessMove> 
     {
-        let fen = board.to_string();
-        let url = format!("http://tablebase.lichess.ovh/standard?fen={}", fen);
+        if self.failed 
+        {
+            return None
+        }
 
-        let response = ureq::get(&url)
+        let fen = board.to_string();
+        let url = format!("http://tablebase.lichess.ovh/standard?fen={fen}");
+
+        let response = self.agent.get(&url)
             .call()
             .map_err(|_| {})
             .ok()?
@@ -20,8 +37,7 @@ impl EndgameTablebase
             .map_err(|_| {})
             .ok()?;
 
-        if let Some(Value::Array(moves)) = response.get("moves") 
-        {
+        if let Some(Value::Array(moves)) = response.get("moves") {
             if let Some(Value::Object(first_move)) = moves.get(0) {
                 if let Some(uci) = first_move.get("uci").and_then(Value::as_str) {
                     return ChessMove::from_str(uci).ok();
@@ -29,6 +45,7 @@ impl EndgameTablebase
             }
         }
 
+        self.failed = true;
         None
     }
 }

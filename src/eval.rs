@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chess::{Board, BoardStatus, ChessMove, Color, File, MoveGen, Piece, Rank, Square, ALL_SQUARES, EMPTY};
 use chess::BoardStatus::{Checkmate, Stalemate};
 use chess::Color::{White, Black};
-use crate::consts::{CONTROLLING_SQUARE, DEFENDING_PIECE, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
+use crate::consts::{CONTROLLING_SQUARE, CONTROLLING_SQUARE_OPENING, DEFENDING_PIECE, DEFENDING_PIECE_OPENING, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_FOR_USING_OPENING_BOOK, OPENING_QUEEN_SAFETY, PAWN_ON_SAFE_FILE_DISADVANTAGE, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
 use crate::material::material;
 use crate::piece_table::{king_square_value, pawn_square_value};
 
@@ -189,6 +189,7 @@ pub fn eval(
 ) -> f32 
 {
     let pieces = count_all_pieces(board);
+    let mut pawn_on_files: u8 = 0;
 
     if board.status() == Checkmate 
     {
@@ -237,8 +238,6 @@ pub fn eval(
         }
     }
 
-    if _log{println!("score: {}", score_for_white)}
-
     for square in ALL_SQUARES 
     {
         if let Some(piece) = board.piece_on(square) 
@@ -253,6 +252,14 @@ pub fn eval(
 
             if is_endgame && piece == Piece::Pawn 
             {
+                let file_index= square.get_file().to_index();
+                if ((pawn_on_files << file_index) & 1_u8) != 0
+                {
+                    score_for_white -= white_score(PAWN_ON_SAFE_FILE_DISADVANTAGE, color)
+                }
+
+                pawn_on_files |= 1 << square.get_file().to_index();
+
                 let king = board.king_square(color);
                 let enemy_king = board.king_square(invert_color(color));
 
@@ -293,7 +300,7 @@ pub fn eval(
 
             if (piece == Piece::Queen || piece == Piece::Knight) && is_opening_for_piece_safety
             {
-                if color == White && rank > 2
+                if color == White && rank > 1
                 {
                     score_for_white -= match piece 
                     {
@@ -303,7 +310,7 @@ pub fn eval(
                     }
                 }
 
-                if color == Black && rank < 5
+                if color == Black && rank < 6
                 {
                     score_for_white += match piece 
                     {
@@ -335,8 +342,6 @@ pub fn eval(
             };
         }
     }
-
-    if _log{println!("score: {}", score_for_white)}
 
     for mov in &legal_moves
     {
@@ -381,7 +386,6 @@ pub fn eval(
             score_for_white += white_score(CONTROLLING_SQUARE, board.side_to_move())
         }   
     }
-    if _log{println!("score: {}", score_for_white)}
 
     let flipped_board = board.null_move();
 
@@ -393,15 +397,34 @@ pub fn eval(
         {
             if board.piece_on(mov.get_dest()).is_none() 
             {
-                score_for_white += white_score(DEFENDING_PIECE, flipped_board.side_to_move())
+                score_for_white += white_score(
+                    if plies <= OPENING_FOR_USING_OPENING_BOOK 
+                    {
+                        DEFENDING_PIECE_OPENING
+                    }
+                    else 
+                    {
+                        DEFENDING_PIECE
+                    }, 
+                    flipped_board.side_to_move()
+                )
             }
             else 
             {
-                score_for_white += white_score(CONTROLLING_SQUARE, flipped_board.side_to_move())
+                score_for_white += white_score(
+                    if plies <= OPENING_FOR_USING_OPENING_BOOK 
+                    {
+                        CONTROLLING_SQUARE_OPENING
+                    }
+                    else 
+                    {
+                        CONTROLLING_SQUARE
+                    }, 
+                    flipped_board.side_to_move()
+                )
             }
         }
     }
-    if _log{println!("score: {}", score_for_white)}
 
     if is_endgame 
     {
@@ -412,7 +435,6 @@ pub fn eval(
 
         score_for_white += diff*score_for_white*ENDGAME_KING_DISTANCE
     }
-    if _log{println!("score: {}", score_for_white)};
 
     score_for_white
 }
