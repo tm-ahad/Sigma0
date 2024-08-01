@@ -213,6 +213,8 @@ pub fn eval(
     let mut captured = HashMap::new();
     let mut max_captured = 0.0;
 
+    let mut pawn_shield = None;
+
     if is_opening_for_king_safety 
     {
         let colors = [Color::White, Color::Black];
@@ -233,7 +235,8 @@ pub fn eval(
                 && board.piece_on(sq2).is_some()
                 && board.piece_on(sq3).is_some()
             {
-                score_for_white += white_score(PAWN_SHIELD_SCORE, _color)
+                score_for_white += white_score(PAWN_SHIELD_SCORE, _color);
+                pawn_shield = Some(_color)
             }
         }
     }
@@ -300,30 +303,20 @@ pub fn eval(
 
             if (piece == Piece::Queen || piece == Piece::Knight) && is_opening_for_piece_safety
             {
-                if color == White && rank > 1
+                score_for_white += match (piece, rank, color) 
                 {
-                    score_for_white -= match piece 
-                    {
-                        Piece::Queen => OPENING_QUEEN_SAFETY,
-                        Piece::Knight => GOOD_KNIGHT,
-                        _ => 0.0
-                    }
-                }
-
-                if color == Black && rank < 6
-                {
-                    score_for_white += match piece 
-                    {
-                        Piece::Queen => OPENING_QUEEN_SAFETY,
-                        Piece::Knight => GOOD_KNIGHT,
-                        _ => 0.0
-                    }
+                    (Piece::Queen, 2..=7, White) => -OPENING_QUEEN_SAFETY,
+                    (Piece::Knight, 3..=7, White) => -GOOD_KNIGHT,
+                    (Piece::Queen, 0..=5, Black) => OPENING_QUEEN_SAFETY,
+                    (Piece::Knight, 0..=4, Black) => GOOD_KNIGHT,
+                    _ => 0.0
                 }
             }
+            
+            let opposite_king = board.king_square(invert_color(color));
 
-            if piece == Piece::Queen && !is_opening_for_king_safety && is_piece_defended(board, square, color)
+            if piece == Piece::Queen && !is_opening_for_king_safety && is_piece_defended(board, square, color) && pawn_shield != Some(invert_color(color))
             {
-                let opposite_king = board.king_square(invert_color(color));
                 let distance = distance(opposite_king, square);
 
                 score_for_white += white_score(match distance 
