@@ -1,11 +1,15 @@
 use std::str::FromStr;
 use std::io::{self, BufRead, Write};
 use chess::{Board, BoardStatus, ChessMove};
+use crate::consts::OPENING_FOR_DIFF_EVAL;
+use crate::move_database::MoveDatabase;
 use crate::move_string_conversion::move_to_string;
 use crate::search::engine;
 
 pub fn start_uci()
 {
+    let mut move_database = MoveDatabase::load();
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
@@ -72,9 +76,14 @@ pub fn start_uci()
                 _ = writeln!(stdout, "bestmove 0000");
             }
 
-            let best_move = engine(&board, plies);
+            let best_move = engine(&board, plies, &mut move_database);
             writeln!(stdout, "bestmove {}", move_to_string(best_move))
                 .expect("Failed to write response");
+
+            if plies <= OPENING_FOR_DIFF_EVAL 
+            {
+                move_database.add_move(&board);
+            }
         }
     }
 }

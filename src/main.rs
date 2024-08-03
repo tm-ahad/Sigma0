@@ -1,4 +1,5 @@
 use std::env::args;
+use dotenv::dotenv;
 use crate::info::print_info;
 use crate::uci::start_uci;
 
@@ -14,11 +15,12 @@ mod move_string_conversion;
 mod piece_table;
 mod transposition_table;
 mod endgame_tablebase;
-mod opening_book;
+mod move_database;
 
 fn main()
 {
     let arguments = args().collect::<Vec<String>>();
+    let _ = dotenv();
 
     if arguments.len() == 1
     {

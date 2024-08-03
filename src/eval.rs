@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chess::{Board, BoardStatus, ChessMove, Color, File, MoveGen, Piece, Rank, Square, ALL_SQUARES, EMPTY};
 use chess::BoardStatus::{Checkmate, Stalemate};
 use chess::Color::{White, Black};
-use crate::consts::{CONTROLLING_SQUARE, CONTROLLING_SQUARE_OPENING, DEFENDING_PIECE, DEFENDING_PIECE_OPENING, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_FOR_USING_OPENING_BOOK, OPENING_QUEEN_SAFETY, PAWN_ON_SAFE_FILE_DISADVANTAGE, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
+use crate::consts::{CONTROLLING_SQUARE, CONTROLLING_SQUARE_OPENING, DEFENDING_PIECE, DEFENDING_PIECE_OPENING, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, MIDDLEGAME_FOR_QUEEN_SAFETY, OPENING_FOR_DIFF_EVAL, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, PAWN_ON_SAFE_FILE_DISADVANTAGE, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
 use crate::material::material;
 use crate::piece_table::{king_square_value, pawn_square_value};
 
@@ -220,7 +220,6 @@ pub fn eval(
         let colors = [Color::White, Color::Black];
         for _color in colors 
         {
-                    
             let white_king = square_index(board.king_square(Color::White));
             let rank = white_king.0 as i8;
             let file = white_king.1 as i8;
@@ -240,6 +239,8 @@ pub fn eval(
             }
         }
     }
+
+    if _log{println!("Eval step 1: {}", score_for_white)};
 
     for square in ALL_SQUARES 
     {
@@ -301,14 +302,40 @@ pub fn eval(
                 }
             }
 
-            if (piece == Piece::Queen || piece == Piece::Knight) && is_opening_for_piece_safety
+            if piece == Piece::Queen && plies <= MIDDLEGAME_FOR_QUEEN_SAFETY
             {
-                score_for_white += match (piece, rank, color) 
+                let white_range = if plies <= OPENING_FOR_PIECE_SAFETY 
                 {
-                    (Piece::Queen, 2..=7, White) => -OPENING_QUEEN_SAFETY,
-                    (Piece::Knight, 3..=7, White) => -GOOD_KNIGHT,
-                    (Piece::Queen, 0..=5, Black) => OPENING_QUEEN_SAFETY,
-                    (Piece::Knight, 0..=4, Black) => GOOD_KNIGHT,
+                    2..=7
+                }
+                else if plies <= MIDDLEGAME_FOR_QUEEN_SAFETY 
+                {
+                    4..=7
+                }
+                else 
+                {
+                    todo!()
+                };
+
+                let black_range = if plies <= OPENING_FOR_PIECE_SAFETY 
+                {
+                    0..=5
+                }
+                else if plies <= MIDDLEGAME_FOR_QUEEN_SAFETY 
+                {
+                    0..=3
+                }
+                else 
+                {
+                    todo!()
+                };
+
+                if _log{println!("{} {} {} {:?} {}", piece == Piece::Queen, color == Color::White, white_range.contains(&rank), white_range, rank)};
+
+                score_for_white += match (piece, color) 
+                {
+                    (Piece::Queen, White) if white_range.contains(&rank) => -OPENING_QUEEN_SAFETY,
+                    (Piece::Queen, Black) if black_range.contains(&rank) => OPENING_QUEEN_SAFETY,
                     _ => 0.0
                 }
             }
@@ -321,8 +348,8 @@ pub fn eval(
 
                 score_for_white += white_score(match distance 
                 {
-                    1 => 3.0,
-                    2 => 1.1,
+                    1 => 2.6,
+                    2 => 0.8,
                     _ => 0.0
                 }, color);
             }
@@ -335,6 +362,8 @@ pub fn eval(
             };
         }
     }
+
+    if _log{println!("Eval step 2: {}", score_for_white)};
 
     for mov in &legal_moves
     {
@@ -379,6 +408,7 @@ pub fn eval(
             score_for_white += white_score(CONTROLLING_SQUARE, board.side_to_move())
         }   
     }
+    if _log{println!("Eval step 3: {}", score_for_white)};
 
     let flipped_board = board.null_move();
 
@@ -391,7 +421,7 @@ pub fn eval(
             if board.piece_on(mov.get_dest()).is_none() 
             {
                 score_for_white += white_score(
-                    if plies <= OPENING_FOR_USING_OPENING_BOOK 
+                    if plies <= OPENING_FOR_DIFF_EVAL 
                     {
                         DEFENDING_PIECE_OPENING
                     }
@@ -405,7 +435,7 @@ pub fn eval(
             else 
             {
                 score_for_white += white_score(
-                    if plies <= OPENING_FOR_USING_OPENING_BOOK 
+                    if plies <= OPENING_FOR_DIFF_EVAL 
                     {
                         CONTROLLING_SQUARE_OPENING
                     }
@@ -419,6 +449,8 @@ pub fn eval(
         }
     }
 
+    if _log{println!("Eval step 4: {}", score_for_white)};
+
     if is_endgame 
     {
         let wk = board.king_square(White);
@@ -428,6 +460,8 @@ pub fn eval(
 
         score_for_white += diff*score_for_white*ENDGAME_KING_DISTANCE
     }
+
+    if _log{println!("Eval step 5: {}", score_for_white)};
 
     score_for_white
 }

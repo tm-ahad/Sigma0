@@ -21,6 +21,7 @@ impl EndGameTablebase {
 
     pub fn get_move(&mut self, board: &Board) -> Option<ChessMove> 
     {
+
         if self.failed 
         {
             return None
@@ -38,7 +39,7 @@ impl EndGameTablebase {
             .ok()?;
 
         if let Some(Value::Array(moves)) = response.get("moves") {
-            if let Some(Value::Object(first_move)) = moves.get(0) {
+            if let Some(Value::Object(first_move)) = moves.first() {
                 if let Some(uci) = first_move.get("uci").and_then(Value::as_str) {
                     return ChessMove::from_str(uci).ok();
                 }
