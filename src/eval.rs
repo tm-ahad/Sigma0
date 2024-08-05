@@ -357,7 +357,7 @@ pub fn eval(
             score_for_white += match piece 
             {
                 Piece::Pawn => white_score(pawn_square_value(rank, file, color, is_endgame, board), color),
-                Piece::King => white_score(king_square_value(rank, file, color, is_endgame), color),
+                Piece::King => white_score(king_square_value(rank, file, color, is_endgame, board), color),
                 _ => white_score(material(Some(piece)), color),
             };
         }

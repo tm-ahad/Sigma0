@@ -1,6 +1,9 @@
 
+use std::sync::MutexGuard;
+
 use chess::{Board, ChessMove, Color, MoveGen, EMPTY};
-use crate::consts::{ENDGAME_PIECE_FOR_GREATER_DEPTH, ENDGAME_SEARCH_DEPTH, FIRST_N_MOVES_TO_EXTEND, OPENING_FOR_DIFF_EVAL, OPENING_SEARCH_DEPTH, SEARCH_DEPTH, USE_QUIESCENSE_SEARCH_AFTER_NPLIES};
+use crate::consts::{ENDGAME_PIECE_FOR_GREATER_DEPTH, ENDGAME_SEARCH_DEPTH, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_DIFF_EVAL, OPENING_SEARCH_DEPTH, SEARCH_DEPTH, USE_QUIESCENSE_SEARCH_AFTER_NPLIES};
+use crate::endgame_tablebase::EndGameTablebase;
 use crate::eval::{count_all_pieces, eval, is_bad_king_move, is_terminal};
 use crate::move_database::MoveDatabase;
 use crate::search_move::SearchMove;
@@ -26,14 +29,16 @@ fn quiescence_search(
     let moves_ordered = order_moves_by_evaluation(board, MoveGen::new_legal(board).collect(), maximizing_player, plies);
 
     for mv in moves_ordered {
-        if board.piece_on(mv.get_dest()).is_none() || board.checkers() == &EMPTY {
+        if board.piece_on(mv.get_dest()).is_none() || board.checkers() == &EMPTY 
+        {
             continue;
         }
 
         let next_board = board.make_move_new(mv);
         let eval_mv;
 
-        if let Some(val) = transposition_table.get_position(&next_board) {
+        if let Some(val) = transposition_table.get_position(&next_board) 
+        {
             eval_mv = val.clone();
         } else {
             eval_mv = quiescence_search(
@@ -93,6 +98,7 @@ pub fn alpha_beta(
         };
         return mov;
     }
+
     let mut best_move = if maximizing_player 
     {
         SearchMove::new(None, f32::NEG_INFINITY)
@@ -103,7 +109,6 @@ pub fn alpha_beta(
     };
 
     let moves_ordered = order_moves_by_evaluation(board, MoveGen::new_legal(board).collect(), maximizing_player, plies);
-    let mut i = 0;
 
     for mv in moves_ordered 
     {
@@ -112,17 +117,26 @@ pub fn alpha_beta(
         }
 
         let next_board = board.make_move_new(mv);
-        let eval_mv;
+        let mut eval_mv = None;
 
         if let Some(val) = transposition_table.get_position(&next_board) 
         {
-            eval_mv = val.clone();
+            eval_mv = Some(val.clone());
         } 
         else 
         {
-            if i < FIRST_N_MOVES_TO_EXTEND && !extended 
+            let curr_eval = if let Some(mv) = eval_mv
             {
-                eval_mv = alpha_beta(
+                mv.eval()
+            }
+            else 
+            {
+                eval(&next_board, MoveGen::new_legal(&next_board).collect(), plies, false)
+            };
+
+            if curr_eval.abs() > 2.0 && !extended
+            {
+                eval_mv = Some(alpha_beta(
                     &next_board,
                     depth,
                     alpha,
@@ -132,11 +146,11 @@ pub fn alpha_beta(
                     true,
                     de_extended,
                     transposition_table
-                );
+                ));
             } 
-            else if !de_extended 
+            else if curr_eval.abs() < 1.0 && !de_extended && depth > 1
             {
-                eval_mv = alpha_beta(
+                eval_mv = Some(alpha_beta(
                     &next_board,
                     depth - 2,
                     alpha,
@@ -146,11 +160,11 @@ pub fn alpha_beta(
                     extended,
                     true,
                     transposition_table
-                );
+                ));
             } 
             else 
             {
-                eval_mv = alpha_beta(
+                eval_mv = Some(alpha_beta(
                     &next_board,
                     depth - 1,
                     alpha,
@@ -160,36 +174,42 @@ pub fn alpha_beta(
                     extended,
                     de_extended,
                     transposition_table
-                );
+                ));
             }
-            transposition_table.add_position(&next_board, &eval_mv);
-        }
 
-        if best_move.mov().is_none() {
-            best_move = SearchMove::new(Some(mv), eval_mv.eval());
+            let eval_mv = &eval_mv.clone().unwrap();
+
+            transposition_table.add_position(&next_board, eval_mv);
+        }
+        
+        let evaluation = eval_mv.clone().unwrap().eval();
+
+        if best_move.mov().is_none() 
+        {
+            best_move = SearchMove::new(Some(mv), evaluation);
         }
 
         if maximizing_player 
         {
-            if eval_mv.eval() > best_move.eval() 
+            if evaluation > best_move.eval() 
             {
-                best_move = SearchMove::new(Some(mv), eval_mv.eval());
+                best_move = SearchMove::new(Some(mv), evaluation);
             }
             alpha = alpha.max(best_move.eval());
         } 
         else 
         {
-            if eval_mv.eval() < best_move.eval() 
+            if evaluation < best_move.eval() 
             {
-                best_move = SearchMove::new(Some(mv), eval_mv.eval());
+                best_move = SearchMove::new(Some(mv), evaluation);
             }
             beta = beta.min(best_move.eval());
         }
 
-        if beta <= alpha {
+        if beta <= alpha 
+        {
             break;
         }
-        i += 1;
     }
 
     best_move
@@ -197,7 +217,8 @@ pub fn alpha_beta(
 
 fn order_moves_by_evaluation(board: &Board, movegen: Vec<ChessMove>, maximizing_player: bool, plies: i32) -> Vec<ChessMove> 
 {
-    let mut move_evaluations: Vec<(ChessMove, f32)> = movegen.into_iter().map(|mv: ChessMove| {
+    let mut move_evaluations: Vec<(ChessMove, f32)> = movegen.into_iter().map(|mv: ChessMove| 
+        {
         let next_board = board.make_move_new(mv);
         let evaluation = eval(&next_board, MoveGen::new_legal(&next_board).collect(), plies + 1, false);
         (mv, evaluation)
@@ -215,19 +236,25 @@ fn order_moves_by_evaluation(board: &Board, movegen: Vec<ChessMove>, maximizing_
     move_evaluations.into_iter().map(|(mv, _)| mv).collect()
 }
 
-pub fn engine(board: &Board, plies: i32, db: &mut MoveDatabase) -> ChessMove 
+pub fn engine(board: &Board, plies: i32, mut db: MutexGuard<MoveDatabase>) -> ChessMove 
 {
+    let pieces = count_all_pieces(board);
+
     let mut transposition_table = TranspostionTable::new();
+    let mut endgame_tablebase = EndGameTablebase::new();
+
     let optimal_move = if plies <= OPENING_FOR_DIFF_EVAL 
     {
         db.get_move(&board)
+    }
+    else if pieces <= MAX_PIECE_FOR_ENDGAME 
+    {
+        endgame_tablebase.get_move(board)
     }
     else 
     {
         None
     };
-
-    let pieces = count_all_pieces(board);
 
     if let Some(mov) = optimal_move 
     {

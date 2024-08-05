@@ -1,5 +1,7 @@
 use std::str::FromStr;
 use std::io::{self, BufRead, Write};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use chess::{Board, BoardStatus, ChessMove};
 use crate::consts::OPENING_FOR_DIFF_EVAL;
 use crate::move_database::MoveDatabase;
@@ -8,7 +10,7 @@ use crate::search::engine;
 
 pub fn start_uci()
 {
-    let mut move_database = MoveDatabase::load();
+    let cloned_db = Arc::new(Mutex::new(MoveDatabase::load()));
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -28,7 +30,7 @@ pub fn start_uci()
         }
         else if input.starts_with("uci")
         {
-            writeln!(stdout, "id name oogway").expect("Failed to write response");
+            writeln!(stdout, "id name Sigma0").expect("Failed to write response");
             writeln!(stdout, "id author T.M Ahad").expect("Failed to write response");
             writeln!(stdout, "uciok").expect("Failed to write response");
         }
@@ -76,13 +78,20 @@ pub fn start_uci()
                 _ = writeln!(stdout, "bestmove 0000");
             }
 
-            let best_move = engine(&board, plies, &mut move_database);
+            let best_move = engine(&board, plies, cloned_db.lock().unwrap());
+            
             writeln!(stdout, "bestmove {}", move_to_string(best_move))
                 .expect("Failed to write response");
 
             if plies <= OPENING_FOR_DIFF_EVAL 
             {
-                move_database.add_move(&board);
+                let cloned_db = cloned_db.clone();
+                let handle = thread::spawn(move || {
+                    let mut db = cloned_db.lock().unwrap();
+                    db.add_move(&board);
+                });
+
+                handle.join().unwrap();
             }
         }
     }

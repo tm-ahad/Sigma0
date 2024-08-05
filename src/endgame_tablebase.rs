@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{io::{self, Write}, str::FromStr, time::Duration};
 use chess::{Board, ChessMove};
 use serde_json::Value;
 use ureq::{Agent, AgentBuilder};
@@ -28,7 +28,7 @@ impl EndGameTablebase {
         }
 
         let fen = board.to_string();
-        let url = format!("http://tablebase.lichess.ovh/standard?fen={fen}");
+        let url = format!("http://tablebase.lichess.ovh/standard/mailine?fen={fen}");
 
         let response = self.agent.get(&url)
             .call()
@@ -38,7 +38,7 @@ impl EndGameTablebase {
             .map_err(|_| {})
             .ok()?;
 
-        if let Some(Value::Array(moves)) = response.get("moves") {
+        if let Some(Value::Array(moves)) = response.get("mainline") {
             if let Some(Value::Object(first_move)) = moves.first() {
                 if let Some(uci) = first_move.get("uci").and_then(Value::as_str) {
                     return ChessMove::from_str(uci).ok();
@@ -46,7 +46,14 @@ impl EndGameTablebase {
             }
         }
 
+        if self.failed == false 
+        {
+            let mut stdout = io::stdout();
+            let _ = write!(stdout, "info syzygy endgame tablebases can't be loaded due to network error.");
+        }
+
         self.failed = true;
+
         None
     }
 }

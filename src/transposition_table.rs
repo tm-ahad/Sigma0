@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use chess::Board;
-
 use crate::search_move::SearchMove;
-
 
 pub struct TranspostionTable 
 {

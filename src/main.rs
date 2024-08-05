@@ -1,5 +1,4 @@
 use std::env::args;
-use dotenv::dotenv;
 use crate::info::print_info;
 use crate::uci::start_uci;
 
@@ -20,7 +19,7 @@ mod move_database;
 fn main()
 {
     let arguments = args().collect::<Vec<String>>();
-    let _ = dotenv();
+    let _ = dotenv::from_path("D:/rust-projects/Sigma0/.env");
 
     if arguments.len() == 1
     {

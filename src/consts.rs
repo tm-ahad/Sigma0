@@ -16,8 +16,6 @@ pub const DEFENDING_PIECE: f32 = 0.03;
 pub const DEFENDING_PIECE_OPENING: f32 = 0.04;
 pub const PAWN_ON_SAFE_FILE_DISADVANTAGE: f32 = 0.18;
 
-pub const FIRST_N_MOVES_TO_EXTEND: i32 = 7;
-
 pub const OPENING_FOR_DIFF_EVAL: i32 = 15;
 pub const OPENING_SEARCH_DEPTH: u8 = 5;
 pub const SEARCH_DEPTH: u8 = 5;
