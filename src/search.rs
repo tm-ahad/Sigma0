@@ -86,6 +86,8 @@ pub fn alpha_beta(
     transposition_table: &mut TranspostionTable
 ) -> SearchMove 
 {
+    let board_eval = eval(board, MoveGen::new_legal(board).collect(), plies, false);
+
     if depth == 0 || is_terminal(board.status()) 
     {
         let mov = if plies > USE_QUIESCENSE_SEARCH_AFTER_NPLIES 
@@ -134,7 +136,8 @@ pub fn alpha_beta(
                 eval(&next_board, MoveGen::new_legal(&next_board).collect(), plies, false)
             };
 
-            if curr_eval.abs() > 2.0 && !extended
+            let eval_diff = (board_eval - curr_eval).abs();
+            if eval_diff > 1.5 && !extended
             {
                 eval_mv = Some(alpha_beta(
                     &next_board,
@@ -148,7 +151,7 @@ pub fn alpha_beta(
                     transposition_table
                 ));
             } 
-            else if curr_eval.abs() < 1.0 && !de_extended && depth > 1
+            else if eval_diff < 1.0 && !de_extended && depth > 1
             {
                 eval_mv = Some(alpha_beta(
                     &next_board,
