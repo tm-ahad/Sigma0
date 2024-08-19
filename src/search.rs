@@ -111,11 +111,13 @@ pub fn alpha_beta(
     };
 
     let moves_ordered = order_moves_by_evaluation(board, MoveGen::new_legal(board).collect(), maximizing_player, plies);
+    let pieces = count_all_pieces(&board);
 
     for mv in moves_ordered 
     {
-        if is_bad_king_move(board, &mv, plies) {
-            continue;
+        if is_bad_king_move(&board, &mv, pieces)
+        {
+            continue
         }
 
         let next_board = board.make_move_new(mv);
@@ -246,13 +248,13 @@ pub fn engine(board: &Board, plies: i32, mut db: MutexGuard<MoveDatabase>) -> Ch
     let mut transposition_table = TranspostionTable::new();
     let mut endgame_tablebase = EndGameTablebase::new();
 
-    let optimal_move = if plies <= OPENING_FOR_DIFF_EVAL 
-    {
-        db.get_move(&board)
-    }
-    else if pieces <= MAX_PIECE_FOR_ENDGAME 
+    let optimal_move = if pieces <= MAX_PIECE_FOR_ENDGAME
     {
         endgame_tablebase.get_move(board)
+    }
+    else if plies <= OPENING_FOR_DIFF_EVAL 
+    {
+        db.get_move(&board)
     }
     else 
     {

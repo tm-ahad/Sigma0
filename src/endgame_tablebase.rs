@@ -1,34 +1,39 @@
-use std::{io::{self, Write}, str::FromStr, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 use chess::{Board, ChessMove};
 use serde_json::Value;
 use ureq::{Agent, AgentBuilder};
 
-pub struct EndGameTablebase {
+pub struct EndGameTablebase 
+{
     agent: Agent,
-    failed: bool
+    map: HashMap<String, String>
 }
 
-impl EndGameTablebase {
-    pub fn new() -> Self {
-        EndGameTablebase {
+impl EndGameTablebase 
+{
+    pub fn new() -> Self 
+    {
+        EndGameTablebase 
+        {
             agent: AgentBuilder::new()
                 .timeout(Duration::from_secs(2))
                 .timeout_connect(Duration::from_secs(2))
                 .build(),
-            failed: false,
+            map: HashMap::new()
         }
     }
 
     pub fn get_move(&mut self, board: &Board) -> Option<ChessMove> 
     {
+        let fen = board.to_string();
+        let cache = self.map.get(&fen);
 
-        if self.failed 
+        if cache.is_some()
         {
-            return None
+            return Some(ChessMove::from_str(cache.unwrap()).unwrap())
         }
 
-        let fen = board.to_string();
-        let url = format!("http://tablebase.lichess.ovh/standard/mailine?fen={fen}");
+        let url = format!("https://tablebase.lichess.ovh/standard?fen={fen}");
 
         let response = self.agent.get(&url)
             .call()
@@ -38,22 +43,33 @@ impl EndGameTablebase {
             .map_err(|_| {})
             .ok()?;
 
-        if let Some(Value::Array(moves)) = response.get("mainline") {
-            if let Some(Value::Object(first_move)) = moves.first() {
-                if let Some(uci) = first_move.get("uci").and_then(Value::as_str) {
-                    return ChessMove::from_str(uci).ok();
-                }
-            }
-        }
-
-        if self.failed == false 
+        let cloned_board = board.clone();
+            
+        return if let Some(Value::Array(moves)) = response.get("moves") 
         {
-            let mut stdout = io::stdout();
-            let _ = write!(stdout, "info syzygy endgame tablebases can't be loaded due to network error.");
+            let moves = moves
+                .iter()
+                .map(|a| 
+                    {
+                        match a 
+                        {
+                            Value::Object(map) => ChessMove::from_str(map["uci"].as_str().unwrap()).unwrap(),
+                            _ => todo!()
+                        }
+                    })
+                .collect::<Vec<ChessMove>>();
+
+            for mov in &moves 
+            {
+                self.map.insert(cloned_board.to_string(), mov.to_string());
+                cloned_board.make_move_new(mov.clone());
+            }
+
+            Some(moves[0])
         }
-
-        self.failed = true;
-
-        None
+        else 
+        {
+            None
+        }
     }
 }

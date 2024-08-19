@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chess::{Board, BoardStatus, ChessMove, Color, File, MoveGen, Piece, Rank, Square, ALL_SQUARES, EMPTY};
 use chess::BoardStatus::{Checkmate, Stalemate};
 use chess::Color::{White, Black};
-use crate::consts::{CONTROLLING_SQUARE, CONTROLLING_SQUARE_OPENING, DEFENDING_PIECE, DEFENDING_PIECE_OPENING, ENDGAME_KING_DISTANCE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, MIDDLEGAME_FOR_QUEEN_SAFETY, OPENING_FOR_DIFF_EVAL, OPENING_FOR_KING_SAFETY, OPENING_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, PAWN_ON_SAFE_FILE_DISADVANTAGE, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
+use crate::consts::{CONTROLLING_SQUARE, CONTROLLING_SQUARE_OPENING, DEFENDING_PIECE, DEFENDING_PIECE_OPENING, ENDGAME_KING_DISTANCE, ENDGAME_PAWN_ROOK_DEFENSE_ADVANTAGE, GOOD_KNIGHT, KING_MOVED_NOT_ENDGAME, MAX_PIECE_FOR_ENDGAME, OPENING_FOR_DIFF_EVAL, OPENING_PIECES_FOR_KING_SAFETY, OPENING_PIECES_FOR_PIECE_SAFETY, OPENING_QUEEN_SAFETY, PAWN_CHAIN_BONUS, PAWN_ON_SAFE_FILE_DISADVANTAGE, PAWN_SHIELD_SCORE, ROOK_ON_7TH_RANK_BONUS};
 use crate::material::material;
 use crate::piece_table::{king_square_value, pawn_square_value};
 
@@ -36,8 +36,8 @@ fn invert_color(color: Color) -> Color
 {
     match color 
     {
-        Color::White => Color::Black,
-        Color::Black => Color::White
+        White => Black,
+        Black => White
     }
 }
 
@@ -46,110 +46,81 @@ fn is_valid_file_rank(file: i8, rank: i8) -> bool
     (0..=7).contains(&file) && (0..=7).contains(&rank)
 }
 
-fn is_piece_defended(board: &Board, sq: Square, color: Color) -> bool
+fn is_piece_defended(board: &Board, sq: Square, color: Color, is_endgame: bool, curr_eval: &mut f32) -> bool
 {
-    let queen_directions: Vec<(i8, i8)> = vec!
-    [
-        (-1, 1),
-        (1, 1),
-        (1, -1),
-        (-1, -1),
-        (1, 0),
-        (0, 1),
-        (0, -1),
-        (-1, 0)
+    let queen_directions: Vec<(i8, i8)> = vec![
+        (-1, 1), (1, 1), (1, -1), (-1, -1), // Diagonals
+        (1, 0), (0, 1), (0, -1), (-1, 0)   // Straights
     ];
 
-    let knight_directions: Vec<(i8, i8)> = vec!
-    [
-        (-2, 1),
-        (-2, -1),
-        (1, -2),
-        (-1, -2),
-        (2, 1),
-        (2, -1),
-        (1, 2),
-        (-1, 2)
+    let sq_piece_type = board.piece_on(sq).unwrap();
+
+    let knight_directions: Vec<(i8, i8)> = vec![
+        (-2, 1), (-2, -1), (1, -2), (-1, -2),
+        (2, 1), (2, -1), (1, 2), (-1, 2)
     ];
 
-    let mut file = sq.get_file().to_index() as i8;
-    let mut rank = sq.get_rank().to_index() as i8;
+    for direction in queen_directions {
+        let mut file = sq.get_file().to_index() as i8;
+        let mut rank = sq.get_rank().to_index() as i8;
 
-    for directions in queen_directions 
-    {
-        while is_valid_file_rank(file, rank) 
-        {
-            let square = Square::make_square
-            (
-                Rank::from_index(file as usize), 
-                File::from_index(rank as usize)
-            );
+        loop {
+            file += direction.0;
+            rank += direction.1;
 
-            let piece = board.piece_on(square);
-            let piece_color = board.color_on(square);
-
-            if let Some(piece) = piece 
-            {
-                if piece_color == Some(color) 
-                {
-                    let multiple = (directions.0*directions.1).abs();
-                    let distance = distance(sq, square);
-
-                    if piece == Piece::Pawn && multiple == 1 && distance == 0 
-                    {
-                        if color == White && directions.1 == 1 
-                        {
-                            return true;
-                        }
-                        else if color == Black && directions.0 == -1 
-                        {
-                            return true;
-                        }
-                    } 
-                    else if piece == Piece::King && distance == 0 
-                    {
-                        return true;
-                    }
-                    else if piece == Piece::Bishop && multiple == 1 
-                    {
-                        return true;
-                    }
-                    else if piece == Piece::Rook && multiple == 0 
-                    {
-                        return true;
-                    }
-                    else if piece == Piece::Queen 
-                    {
-                        return true;
-                    }
-                }
+            if !is_valid_file_rank(file, rank) {
+                break;
             }
 
-            file += directions.0;
-            rank += directions.1;
+            let square = Square::make_square(
+                Rank::from_index(rank as usize),
+                File::from_index(file as usize)
+            );
+
+            if let Some(piece) = board.piece_on(square) {
+                if board.color_on(square) == Some(color) {
+                    let distance = distance(sq, square);
+
+                    let pawn_defend = piece == Piece::Pawn && distance == 0 && direction.0.abs() == 1 &&
+                        ((color == White && direction.1 == -1) ||
+                            (color == Black && direction.1 == 1));
+
+                    let king_defend = piece == Piece::King && distance == 0;
+                    let bishop_defend = piece == Piece::Bishop && direction.0.abs() == direction.1.abs();
+                    let rook_defend = piece == Piece::Rook && (direction.0 == 0 || direction.1 == 0);
+                    let queen_defend = piece == Piece::Queen;
+
+                    if pawn_defend && sq_piece_type == Piece::Pawn
+                    {
+                        *curr_eval += white_score(PAWN_CHAIN_BONUS, color)
+                    }
+
+                    if rook_defend && sq_piece_type == Piece::Pawn && is_endgame
+                    {
+                        *curr_eval += white_score(ENDGAME_PAWN_ROOK_DEFENSE_ADVANTAGE, color)
+                    }
+
+                    return pawn_defend || king_defend || bishop_defend || rook_defend || queen_defend
+                }
+                break;
+            }
         }
     }
 
-    file = sq.get_file().to_index() as i8;
-    rank = sq.get_rank().to_index() as i8;
+    for direction in knight_directions {
+        let file = sq.get_file().to_index() as i8 + direction.0;
+        let rank = sq.get_rank().to_index() as i8 + direction.1;
 
-    for directions in knight_directions 
-    {
-        let file = file + directions.0;
-        let rank = rank + directions.1;
+        if is_valid_file_rank(file, rank) {
+            let square = Square::make_square(
+                Rank::from_index(rank as usize),
+                File::from_index(file as usize)
+            );
 
-        let square = Square::make_square
-        (
-            Rank::from_index(file as usize), 
-            File::from_index(rank as usize)
-        );
-
-        let piece_color = board.color_on(square);
-        let piece = board.piece_on(square);
-
-        if piece_color == Some(color) && piece == Some(Piece::Knight)
-        {
-            return true;
+            if board.color_on(square) == Some(color) && board.piece_on(square) == Some(Piece::Knight)
+            {
+                return true;
+            }
         }
     }
 
@@ -164,9 +135,9 @@ fn distance(sq: Square, sq2: Square) -> u8
     sqrf.max(sqfd) - 1
 }
 
-pub fn is_bad_king_move(board: &Board, mov: &ChessMove, plies: i32) -> bool
+pub fn is_bad_king_move(board: &Board, mov: &ChessMove, pieces: u8) -> bool
 {
-    let is_opening_for_king_safety = plies < OPENING_FOR_KING_SAFETY;
+    let is_opening_for_king_safety = pieces <= OPENING_PIECES_FOR_KING_SAFETY;
     let source = mov.get_source();
     let dest = mov.get_dest();
 
@@ -176,8 +147,8 @@ pub fn is_bad_king_move(board: &Board, mov: &ChessMove, plies: i32) -> bool
 
     is_opening_for_king_safety && !is_castling && !is_capturing && !is_check &&
     (
-        mov.get_source() == board.king_square(Color::White) ||
-        mov.get_source() == board.king_square(Color::Black)
+        mov.get_source() == board.king_square(White) ||
+        mov.get_source() == board.king_square(Black)
     )
 }
 
@@ -207,8 +178,8 @@ pub fn eval(
     let mut score_for_white = 0.0;
 
     let is_endgame = pieces <= MAX_PIECE_FOR_ENDGAME;
-    let is_opening_for_piece_safety = plies < OPENING_FOR_PIECE_SAFETY;
-    let is_opening_for_king_safety = plies < OPENING_FOR_KING_SAFETY;
+    let is_opening_for_piece_safety = plies <= OPENING_PIECES_FOR_PIECE_SAFETY;
+    let is_opening_for_king_safety = pieces <= OPENING_PIECES_FOR_KING_SAFETY;
 
     let mut captured = HashMap::new();
     let mut max_captured = 0.0;
@@ -217,14 +188,14 @@ pub fn eval(
 
     if is_opening_for_king_safety 
     {
-        let colors = [Color::White, Color::Black];
+        let colors = [White, Black];
         for _color in colors 
         {
-            let white_king = square_index(board.king_square(Color::White));
+            let white_king = square_index(board.king_square(White));
             let rank = white_king.0 as i8;
             let file = white_king.1 as i8;
 
-            let rank_change: i8 = if _color == Color::White {1} else {-1};
+            let rank_change: i8 = if _color == White {1} else {-1};
                 
             let sq1 = Square::make_square(Rank::from_index((rank+rank_change) as usize), File::from_index((file-1) as usize));
             let sq2 = Square::make_square(Rank::from_index((rank+rank_change) as usize), File::from_index(file as usize));
@@ -291,6 +262,8 @@ pub fn eval(
 
             if piece == Piece::King && is_opening_for_king_safety
             {
+                let plies = if plies == 0 {8} else {plies};
+
                 if color == Black && rank != 7
                 {
                     score_for_white += KING_MOVED_NOT_ENDGAME/plies as f32;
@@ -302,35 +275,12 @@ pub fn eval(
                 }
             }
 
-            if piece == Piece::Queen && plies <= MIDDLEGAME_FOR_QUEEN_SAFETY
+            if piece == Piece::Queen && is_opening_for_piece_safety
             {
-                let white_range = if plies <= OPENING_FOR_PIECE_SAFETY 
-                {
-                    2..=7
-                }
-                else if plies <= MIDDLEGAME_FOR_QUEEN_SAFETY 
-                {
-                    4..=7
-                }
-                else 
-                {
-                    todo!()
-                };
+                let white_range = 2..=7;
+                let black_range = 0..=3;
 
-                let black_range = if plies <= OPENING_FOR_PIECE_SAFETY 
-                {
-                    0..=5
-                }
-                else if plies <= MIDDLEGAME_FOR_QUEEN_SAFETY 
-                {
-                    0..=3
-                }
-                else 
-                {
-                    todo!()
-                };
-
-                if _log{println!("{} {} {} {:?} {}", piece == Piece::Queen, color == Color::White, white_range.contains(&rank), white_range, rank)};
+                if _log{println!("{} {} {} {:?} {}", piece == Piece::Queen, color == White, white_range.contains(&rank), white_range, rank)};
 
                 score_for_white += match (piece, color) 
                 {
@@ -342,7 +292,7 @@ pub fn eval(
             
             let opposite_king = board.king_square(invert_color(color));
 
-            if piece == Piece::Queen && !is_opening_for_king_safety && is_piece_defended(board, square, color) && pawn_shield != Some(invert_color(color))
+            if piece == Piece::Queen && !is_opening_for_king_safety && is_piece_defended(board, square, color, is_endgame, &mut score_for_white) && pawn_shield != Some(invert_color(color))
             {
                 let distance = distance(opposite_king, square);
 
@@ -367,7 +317,7 @@ pub fn eval(
 
     for mov in &legal_moves
     {
-        if is_bad_king_move(board, mov, plies) 
+        if is_bad_king_move(board, mov, pieces) 
         {
             continue;
         }
@@ -384,7 +334,7 @@ pub fn eval(
             {
                 score_for_white += white_score(*val, source_color.unwrap());
             }
-            else if !is_piece_defended(board, dest_sq, dest_color) 
+            else if !is_piece_defended(board, dest_sq, dest_color, is_endgame, &mut score_for_white)
             {
                 let source_material = material(Some(dest_piece));
 
@@ -418,8 +368,16 @@ pub fn eval(
 
         for mov in legal_moves_other_side 
         {
-            if board.piece_on(mov.get_dest()).is_none() 
+            let dest_piece = board.piece_on(mov.get_dest());
+            let source_piece = board.piece_on(mov.get_source());
+
+            if dest_piece.is_some()
             {
+                if is_endgame && dest_piece == Some(Piece::Pawn) && source_piece == Some(Piece::Pawn)
+                {
+                    score_for_white += white_score(ENDGAME_PAWN_ROOK_DEFENSE_ADVANTAGE, flipped_board.side_to_move())
+                }
+
                 score_for_white += white_score(
                     if plies <= OPENING_FOR_DIFF_EVAL 
                     {

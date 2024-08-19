@@ -19,7 +19,7 @@ mod move_database;
 fn main()
 {
     let arguments = args().collect::<Vec<String>>();
-    let _ = dotenv::from_path("D:/rust-projects/Sigma0/.env");
+    let _ = dotenv::from_path("D:/rust-projects/Sigma1/.env");
 
     if arguments.len() == 1
     {
